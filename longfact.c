@@ -36,7 +36,7 @@ struct longfact detLF(int n){
             anterior = n - k;
             actual *= anterior;
             while(actual >= 10){
-                actual *= 0.1f;
+                actual *= 0.1;
                 cont ++;
             };
         }
