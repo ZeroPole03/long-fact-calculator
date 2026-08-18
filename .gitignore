@@ -1,0 +1,17 @@
+nano .gitignore # Executables
+long_factorial
+a.out
+
+# Object files
+*.o
+
+# macOS
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Xcode
+DerivedData/
+xcuserdata/
