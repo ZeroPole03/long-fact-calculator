@@ -1,3 +1,9 @@
+// Alan Rodriguez Bojorjes
+// Master Candidate in Electronics Engineering
+// Universidad Autonoma de San Luis Potosi 
+// Faculty of Science
+// Fall 2024
+
 #include <stdio.h>
 #include <time.h>
 
