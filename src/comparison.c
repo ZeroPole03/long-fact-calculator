@@ -1,51 +1,56 @@
 // comparison.c
-//
-// Comparison between a normalized factorial approximation
-// and a reference calculation based on lgamma().
-//
 // Alan Rodriguez Bojorjes
-// Master's Candidate in Electronics Engineering
-// Universidad Autonoma de San Luis Potosi
+// Comparison between a custom large factorial approximation
+// and the lgamma() mathematical reference.
+//
+// Compile with:
+// clang -O2 -Wall -Wextra -o comparison src/comparison.c -lm
 
 #include <stdio.h>
-#include <time.h>
 #include <math.h>
+#include <time.h>
 
-struct longfact {
-    double coef;
-    int n;
-    long long exp;
-};
+#define NUM_TESTS 6
+
+volatile double benchmark_sink = 0.0;
 
 
 /*
- * Original normalized factorial algorithm.
- *
- * Represents:
+ * Structure used to represent:
  *
  *      n! ~= coef x 10^exp
- *
- * The coefficient is kept approximately
- * in the range [1, 10).
  */
-struct longfact detLF(int n) {
+typedef struct {
+    double coef;
+    int n;
+    int exp;
+} longfact;
 
-    struct longfact lf;
+
+/*
+ * Custom factorial approximation.
+ *
+ * The mantissa is continuously normalized to keep
+ * the intermediate result in a manageable range.
+ */
+longfact detLF(int n)
+{
+    longfact lf;
     lf.n = n;
 
     if (n <= 1) {
-        lf.exp = 0;
         lf.coef = 1.0;
+        lf.exp = 0;
         return lf;
     }
 
-    double actual = n;
-    int anterior;
-    long long cont = 0;
+    double actual = (double)n;
+    int cont = 0;
 
     for (int k = 1; k < n; k++) {
 
-        anterior = n - k;
+        double anterior = (double)(n - k);
+
         actual *= anterior;
 
         while (actual >= 10.0) {
@@ -54,25 +59,21 @@ struct longfact detLF(int n) {
         }
     }
 
-    lf.exp = cont;
     lf.coef = actual;
+    lf.exp = cont;
 
     return lf;
 }
 
 
 /*
- * Reference calculation using:
+ * Reference implementation using:
  *
- *      ln(n!) = lgamma(n + 1)
- *
- * The result is converted to:
- *
- *      n! ~= coef x 10^exp
+ *      log10(n!) = lgamma(n + 1) / ln(10)
  */
-struct longfact referenceLF(int n) {
-
-    struct longfact lf;
+longfact lgamma_factorial(int n)
+{
+    longfact lf;
     lf.n = n;
 
     if (n <= 1) {
@@ -81,44 +82,84 @@ struct longfact referenceLF(int n) {
         return lf;
     }
 
-    double log10_fact =
-        lgamma((double)n + 1.0) / log(10.0);
+    double log_fact = lgamma((double)n + 1.0);
 
-    double integer_part;
+    double log10_fact = log_fact / log(10.0);
 
-    double fractional_part =
-        modf(log10_fact, &integer_part);
+    int exponent = (int)floor(log10_fact);
 
-    lf.exp = (long long)integer_part;
+    double coefficient =
+        pow(10.0, log10_fact - exponent);
 
-    lf.coef = pow(10.0, fractional_part);
+    lf.coef = coefficient;
+    lf.exp = exponent;
 
     return lf;
 }
 
 
 /*
- * Relative error between coefficients.
+ * High-resolution monotonic timer.
  */
-double relativeError(
-    double calculated,
-    double reference
-) {
+double get_time_seconds(void)
+{
+    struct timespec ts;
 
-    return fabs(calculated - reference)
-           / fabs(reference);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return (double)ts.tv_sec +
+           (double)ts.tv_nsec * 1e-9;
 }
 
 
 /*
- * Determines the number of repetitions
- * used for each benchmark.
- *
- * Larger factorials require fewer repetitions
- * because the custom algorithm is O(n).
+ * Benchmark the custom algorithm.
  */
-int getRepetitions(int n) {
+double benchmark_custom(int n, int repetitions)
+{
+    double start = get_time_seconds();
 
+    for (int i = 0; i < repetitions; i++) {
+
+        longfact result = detLF(n);
+
+        benchmark_sink +=
+            result.coef + (double)result.exp;
+    }
+
+    double end = get_time_seconds();
+
+    return (end - start) / repetitions;
+}
+
+
+/*
+ * Benchmark the lgamma() reference.
+ */
+double benchmark_lgamma(int n, int repetitions)
+{
+    double start = get_time_seconds();
+
+    for (int i = 0; i < repetitions; i++) {
+
+        longfact result = lgamma_factorial(n);
+
+        benchmark_sink +=
+            result.coef + (double)result.exp;
+    }
+
+    double end = get_time_seconds();
+
+    return (end - start) / repetitions;
+}
+
+
+/*
+ * Select a reasonable number of repetitions
+ * depending on the size of N.
+ */
+int get_repetitions(int n)
+{
     if (n <= 100)
         return 100000;
 
@@ -135,174 +176,9 @@ int getRepetitions(int n) {
 }
 
 
-/*
- * Benchmarks the custom algorithm.
- */
-double benchmarkCustom(
-    int n,
-    int repetitions,
-    struct longfact *result
-) {
-
-    clock_t start = clock();
-
-    for (int i = 0; i < repetitions; i++) {
-        *result = detLF(n);
-    }
-
-    clock_t end = clock();
-
-    double total_time =
-        (double)(end - start)
-        / CLOCKS_PER_SEC;
-
-    return total_time / repetitions;
-}
-
-
-/*
- * Benchmarks the lgamma() reference method.
- */
-double benchmarkReference(
-    int n,
-    int repetitions,
-    struct longfact *result
-) {
-
-    clock_t start = clock();
-
-    for (int i = 0; i < repetitions; i++) {
-        *result = referenceLF(n);
-    }
-
-    clock_t end = clock();
-
-    double total_time =
-        (double)(end - start)
-        / CLOCKS_PER_SEC;
-
-    return total_time / repetitions;
-}
-
-
-/*
- * Prints the comparison results.
- */
-void printResult(
-    int n,
-    int repetitions,
-    struct longfact custom,
-    struct longfact reference,
-    double custom_time,
-    double reference_time
-) {
-
-    double error =
-        relativeError(
-            custom.coef,
-            reference.coef
-        );
-
-    double speed_ratio = 0.0;
-
-    if (reference_time > 0.0) {
-
-        speed_ratio =
-            custom_time / reference_time;
-    }
-
-    printf("\n");
-
-    printf(
-        "N = %d\n",
-        n
-    );
-
-    printf(
-        "Repetitions: %d\n",
-        repetitions
-    );
-
-    printf(
-        "--------------------------------------------\n"
-    );
-
-
-    printf(
-        "Custom algorithm:\n"
-    );
-
-    printf(
-        "  %.12f x 10^%lld\n",
-        custom.coef,
-        custom.exp
-    );
-
-    printf(
-        "  Average time: %.12e s\n",
-        custom_time
-    );
-
-
-    printf("\n");
-
-
-    printf(
-        "lgamma() reference:\n"
-    );
-
-    printf(
-        "  %.12f x 10^%lld\n",
-        reference.coef,
-        reference.exp
-    );
-
-    printf(
-        "  Average time: %.12e s\n",
-        reference_time
-    );
-
-
-    printf("\n");
-
-
-    printf(
-        "Comparison:\n"
-    );
-
-    printf(
-        "  Exponent difference: %lld\n",
-        custom.exp - reference.exp
-    );
-
-    printf(
-        "  Coefficient relative error: %.12e\n",
-        error
-    );
-
-    printf(
-        "  Relative error: %.12e %%\n",
-        error * 100.0
-    );
-
-    if (speed_ratio > 0.0) {
-
-        printf(
-            "  Custom/reference time ratio: %.3f\n",
-            speed_ratio
-        );
-    }
-
-    printf(
-        "--------------------------------------------\n"
-    );
-}
-
-
-int main(void) {
-
-
-    int test_values[] = {
+int main(void)
+{
+    int test_values[NUM_TESTS] = {
         10,
         100,
         1000,
@@ -311,23 +187,16 @@ int main(void) {
         1000000
     };
 
+    FILE *file;
 
-    int num_tests =
-        sizeof(test_values)
-        / sizeof(test_values[0]);
-
-
-    FILE *file =
-        fopen(
-            "results/comparison.csv",
-            "w"
-        );
-
+    file = fopen(
+        "results/comparison.csv",
+        "w"
+    );
 
     if (file == NULL) {
-
         printf(
-            "Error: Could not create "
+            "Error: could not create "
             "results/comparison.csv\n"
         );
 
@@ -335,127 +204,195 @@ int main(void) {
     }
 
 
-    /*
-     * CSV header.
-     */
     fprintf(
         file,
-
-        "n,"
-        "repetitions,"
+        "N,repetitions,"
         "custom_coefficient,"
         "custom_exponent,"
-        "custom_average_time_seconds,"
-        "reference_coefficient,"
-        "reference_exponent,"
-        "reference_average_time_seconds,"
+        "lgamma_coefficient,"
+        "lgamma_exponent,"
         "exponent_difference,"
-        "relative_error,"
+        "coefficient_relative_error,"
+        "relative_error_percent,"
+        "custom_time,"
+        "lgamma_time,"
         "time_ratio\n"
     );
 
 
-    printf("\n");
-
     printf(
+        "\n"
         "============================================\n"
-    );
-
-    printf(
         " LARGE FACTORIAL APPROXIMATION COMPARISON\n"
-    );
-
-    printf(
         "============================================\n"
     );
 
 
-    for (
-        int i = 0;
-        i < num_tests;
-        i++
-    ) {
+    for (int i = 0; i < NUM_TESTS; i++) {
 
         int n = test_values[i];
 
         int repetitions =
-            getRepetitions(n);
-
-
-        struct longfact custom;
-        struct longfact reference;
+            get_repetitions(n);
 
 
         /*
-         * Benchmark custom algorithm.
+         * Calculate both results once.
+         */
+        longfact custom =
+            detLF(n);
+
+        longfact reference =
+            lgamma_factorial(n);
+
+
+        /*
+         * Benchmark both implementations.
          */
         double custom_time =
-            benchmarkCustom(
+            benchmark_custom(
                 n,
-                repetitions,
-                &custom
+                repetitions
+            );
+
+        double lgamma_time =
+            benchmark_lgamma(
+                n,
+                repetitions
             );
 
 
         /*
-         * Benchmark reference algorithm.
+         * Accuracy comparison.
          */
-        double reference_time =
-            benchmarkReference(
-                n,
-                repetitions,
-                &reference
-            );
+        int exponent_difference =
+            custom.exp - reference.exp;
 
-
-        /*
-         * Calculate accuracy.
-         */
-        double error =
-            relativeError(
-                custom.coef,
+        double coefficient_relative_error =
+            fabs(
+                custom.coef -
                 reference.coef
-            );
+            ) /
+            fabs(reference.coef);
+
+        double relative_error_percent =
+            coefficient_relative_error *
+            100.0;
 
 
+        /*
+         * Time comparison.
+         */
         double time_ratio = 0.0;
 
-        if (reference_time > 0.0) {
+        if (lgamma_time > 0.0) {
 
             time_ratio =
-                custom_time
-                / reference_time;
+                custom_time /
+                lgamma_time;
         }
 
 
         /*
          * Print results.
          */
-        printResult(
-            n,
-            repetitions,
-            custom,
-            reference,
-            custom_time,
-            reference_time
+        printf(
+            "\n"
+            "N = %d\n",
+            n
+        );
+
+        printf(
+            "Repetitions: %d\n",
+            repetitions
+        );
+
+        printf(
+            "--------------------------------------------\n"
+        );
+
+
+        printf(
+            "Custom algorithm:\n"
+        );
+
+        printf(
+            "  %.12f x 10^%d\n",
+            custom.coef,
+            custom.exp
+        );
+
+        printf(
+            "  Average time: %.12e s\n",
+            custom_time
+        );
+
+
+        printf(
+            "\n"
+            "lgamma() reference:\n"
+        );
+
+        printf(
+            "  %.12f x 10^%d\n",
+            reference.coef,
+            reference.exp
+        );
+
+        printf(
+            "  Average time: %.12e s\n",
+            lgamma_time
+        );
+
+
+        printf(
+            "\n"
+            "Comparison:\n"
+        );
+
+        printf(
+            "  Exponent difference: %d\n",
+            exponent_difference
+        );
+
+        printf(
+            "  Coefficient relative error: %.12e\n",
+            coefficient_relative_error
+        );
+
+        printf(
+            "  Relative error: %.12e %%\n",
+            relative_error_percent
+        );
+
+
+        if (lgamma_time > 0.0) {
+
+            printf(
+                "  Custom/reference "
+                "time ratio: %.3f\n",
+                time_ratio
+            );
+        }
+
+
+        printf(
+            "--------------------------------------------\n"
         );
 
 
         /*
-         * Save results to CSV.
+         * Save to CSV.
          */
         fprintf(
             file,
-
+            "%d,%d,"
+            "%.15e,%d,"
+            "%.15e,%d,"
             "%d,"
-            "%d,"
-            "%.15e,"
-            "%lld,"
             "%.15e,"
             "%.15e,"
-            "%lld,"
             "%.15e,"
-            "%lld,"
             "%.15e,"
             "%.15e\n",
 
@@ -464,15 +401,19 @@ int main(void) {
 
             custom.coef,
             custom.exp,
-            custom_time,
 
             reference.coef,
             reference.exp,
-            reference_time,
 
-            custom.exp - reference.exp,
+            exponent_difference,
 
-            error,
+            coefficient_relative_error,
+
+            relative_error_percent,
+
+            custom_time,
+
+            lgamma_time,
 
             time_ratio
         );
@@ -482,14 +423,17 @@ int main(void) {
     fclose(file);
 
 
-    printf("\n");
-
     printf(
+        "\n"
         "Results saved to:\n"
+        "results/comparison.csv\n"
     );
 
+
     printf(
-        "results/comparison.csv\n"
+        "\n"
+        "Benchmark sink: %.6f\n",
+        benchmark_sink
     );
 
 
