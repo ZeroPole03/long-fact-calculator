@@ -1,17 +1,14 @@
-nano .gitignore # Executables
-long_factorial
-a.out
+# Compiled executables
+longfact
+comparison
+*.out
 
 # Object files
 *.o
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 # macOS
 .DS_Store
-
-# IDE files
-.vscode/
-.idea/
-
-# Xcode
-DerivedData/
-xcuserdata/
